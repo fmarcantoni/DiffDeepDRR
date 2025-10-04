@@ -1,26 +1,58 @@
+# Add the project root (e.g., home/ws/Repo_name) to Python path
+import sys
+from pathlib import Path
+import os
+
+# Get the path of the directory containing the current script (generation/)
+script_dir = os.path.dirname(__file__)
+
+# Get the path of the project root (repo/)
+project_root = os.path.abspath(os.path.join(script_dir, ".."))
+
+# Add the project root to the system path
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
 import numpy as np
 from libs.DiffDeepDRR.Differentiable_DRRs import Differentiable_DRRs
 from libs.DiffDeepDRR.vol.volume_Realistic import Volume_Realistc
 from libs.DiffDeepDRR.drr_projectors.proj_zbc import Deepdrrbased_Projector
-from libs.DiffDeepDRR.reg_utils.utils import run_convergence_lbfgs_noplt, run_convergence_adam_noplt
+from libs.DiffDeepDRR.reg_utils.utils import (
+    run_convergence_lbfgs_noplt,
+    run_convergence_adam_noplt,
+)
 from libs.network_utils.loss_func import ZNCC
 import matplotlib.pyplot as plt
 
 
 def DRR_config(vol_dir, device, HU_segments=[-800, 350]):
     # Make the DRR Engine
-    vol = Volume_Realistc.from_nifti(filepath=vol_dir,
-                                     resample=True, resample_spacing=[2.0, 2.0, 2.0],
-                                     HU_segments=HU_segments, target_orient='RIA',
-                                     spectrum='90KV_AL40', use_cache=False)
+    vol = Volume_Realistc.from_nifti(
+        filepath=vol_dir,
+        resample=True,
+        resample_spacing=[2.0, 2.0, 2.0],
+        HU_segments=HU_segments,
+        target_orient="RIA",
+        spectrum="90KV_AL40",
+        use_cache=False,
+    )
     vol.Update()
     assert vol.check_ready(), f"please call vol.Update()"
     # Make the DRR Engine
     Proj = Deepdrrbased_Projector(vol, step=max(vol.get_spacing()), device=device)
-    drr = Differentiable_DRRs(Vol=vol, Projector=Proj, device=device,
-                              detector_center_x=216.0, detector_center_y=216.0,
-                              height=256, pixel_size=1.6875, out_dim=4,
-                              normlized=True, bone_dark=True)
+    # This is the actual engine that creates the synthetic data
+    drr = Differentiable_DRRs(
+        Vol=vol,
+        Projector=Proj,
+        device=device,
+        detector_center_x=216.0,
+        detector_center_y=216.0,
+        height=256,
+        pixel_size=1.6875,
+        out_dim=4,
+        normlized=True,
+        bone_dark=True,
+    )
     return drr
 
 
@@ -38,35 +70,52 @@ def get_true_drr(max_T=30, max_R=15):
 
 def get_image_gradient(arr, scale=1.0) -> object:
     gx1, gy1 = np.gradient(arr)
-    edge = (gx1 ** 2 + gy1 ** 2) ** 0.5
+    edge = (gx1**2 + gy1**2) ** 0.5
     edge = edge / (np.percentile(edge, 99))
     edge = np.tanh(edge * scale)
     return edge
 
 
-def reg_demo():
-    drr_moving = DRR_config('../testdata/ct.nii',
-                            device='cuda:0')
+def reg_demo(ct_volume_path):
+
+    drr_moving = DRR_config(ct_volume_path, device="cuda:0")
     fixed_pose = get_true_drr()
     alpha, beta, gamma, bx, by, bz = fixed_pose
     fixed_img, _ = drr_moving(alpha, beta, gamma, bx, by, bz)
 
+    # Uses an initial perturbation of fixed_img_pose - 5
     init_pose = list(np.asarray(fixed_pose) - 5.0)
     alpha, beta, gamma, bx, by, bz = init_pose
     init_img, _ = drr_moving(alpha, beta, gamma, bx, by, bz)
 
-    cost_func = ZNCC().to('cuda:0')
+    cost_func = ZNCC().to("cuda:0")
     # Run the optimization
-    refine_pose, _ = run_convergence_adam_noplt(fixed_img, drr_moving, cost_func, T_lr=5.0, R_lr=0.5, n_itrs=100)
+    refine_pose, _ = run_convergence_adam_noplt(
+        fixed_img, drr_moving, cost_func, T_lr=5.0, R_lr=0.5, n_itrs=100
+    )
     # refine_pose, _ = run_convergence_lbfgs_noplt(fixed_img, drr_moving, cost_func, n_itrs=5)
 
-    print('-----------------------------------------')
-    print('groundtruth_pose:', fixed_pose)
+    print("-----------------------------------------")
+    print("groundtruth_pose:", fixed_pose)
     init_error = np.asarray(fixed_pose) - np.asarray(init_pose)
-    print('init_pred_pose:', init_pose, 'R_error:', np.linalg.norm(init_error[:3]), 'T_error:', np.linalg.norm(init_error[3:]))
+    print(
+        "init_pred_pose:",
+        init_pose,
+        "R_error:",
+        np.linalg.norm(init_error[:3]),
+        "T_error:",
+        np.linalg.norm(init_error[3:]),
+    )
     ref_error = np.asarray(fixed_pose) - np.asarray(refine_pose)
-    print('final_pred_pose:', refine_pose, 'R_error:', np.linalg.norm(ref_error[:3]), 'T_error:', np.linalg.norm(ref_error[3:]))
-    print('-----------------------------------------')
+    print(
+        "final_pred_pose:",
+        refine_pose,
+        "R_error:",
+        np.linalg.norm(ref_error[:3]),
+        "T_error:",
+        np.linalg.norm(ref_error[3:]),
+    )
+    print("-----------------------------------------")
 
     alpha, beta, gamma, bx, by, bz = list(refine_pose)
     final_img, _ = drr_moving(alpha, beta, gamma, bx, by, bz)
@@ -77,41 +126,54 @@ def reg_demo():
 
     fig, axs = plt.subplots(2, 2)
     fig.tight_layout()
-    axs[0, 0].imshow(fixed_img, cmap='gray')
-    axs[0, 0].set_title('fixed-img')
+    axs[0, 0].imshow(fixed_img, cmap="gray")
+    axs[0, 0].set_title("fixed-img")
     # axs[0, 0].axis('off')
 
-    axs[0, 1].imshow(final_img, cmap='gray')
-    axs[0, 1].set_title('reg-img')
+    axs[0, 1].imshow(final_img, cmap="gray")
+    axs[0, 1].set_title("reg-img")
     # axs[0, 1].axis('off')
 
     edg_gt = get_image_gradient(fixed_img)
-    edg_gt = (edg_gt-edg_gt.min())/(edg_gt.max()-edg_gt.min())
-    edg_gt = edg_gt-edg_gt.mean()
-    edg_gt[edg_gt<0]=0
+    edg_gt = (edg_gt - edg_gt.min()) / (edg_gt.max() - edg_gt.min())
+    edg_gt = edg_gt - edg_gt.mean()
+    edg_gt[edg_gt < 0] = 0
 
     edg_final = get_image_gradient(final_img)
-    edg_final = (edg_final-edg_final.min())/(edg_final.max()-edg_final.min())
-    edg_final = edg_final-edg_final.mean()
-    edg_final[edg_final<0]=0
+    edg_final = (edg_final - edg_final.min()) / (edg_final.max() - edg_final.min())
+    edg_final = edg_final - edg_final.mean()
+    edg_final[edg_final < 0] = 0
 
     edg_init = get_image_gradient(init_img)
-    edg_init = (edg_init-edg_init.min())/(edg_init.max()-edg_init.min())
-    edg_init = edg_init-edg_init.mean()
-    edg_init[edg_init<0]=0
+    edg_init = (edg_init - edg_init.min()) / (edg_init.max() - edg_init.min())
+    edg_init = edg_init - edg_init.mean()
+    edg_init[edg_init < 0] = 0
 
-    axs[1, 0].imshow(edg_gt, cmap='Reds')
-    axs[1, 0].imshow(edg_init, alpha=0.6, cmap='Blues')
-    axs[1, 0].set_title('init.')
+    axs[1, 0].imshow(edg_gt, cmap="Reds")
+    axs[1, 0].imshow(edg_init, alpha=0.6, cmap="Blues")
+    axs[1, 0].set_title("init. pred.")
+    axs[1, 0].set_xlabel(
+        f"Rot: {np.linalg.norm(init_error[:3])} | "
+        f"Trans: {np.linalg.norm(init_error[3:])}"
+    )
     # axs[1, 0].axis('off')
-    axs[1, 1].imshow(edg_gt, cmap='Reds')
-    axs[1, 1].imshow(edg_final, alpha=0.6, cmap='Blues')
-    axs[1, 1].set_title('final')
+    axs[1, 1].imshow(edg_gt, cmap="Reds")
+    axs[1, 1].imshow(edg_final, alpha=0.6, cmap="Blues")
+    axs[1, 1].set_title("final pred.")
+    axs[1, 1].set_xlabel(
+        f"Rot: {np.linalg.norm(ref_error[:3])} | "
+        f"Trans: {np.linalg.norm(ref_error[3:])}"
+    )
     # axs[1, 1].axis('off')
 
-    plt.show()
+    plt.show(block=False)  # non-blocking
+    print("Press any key to continue...")
+    plt.waitforbuttonpress()  # waits for key or mouse click
+    plt.close()  # close current figure
 
 
 if __name__ == "__main__":
-    reg_demo()
-
+    base_dir = Path("/home/future-lab/fmarcantoni_ws/DiffDeepDRR/testdata")
+    for i in range(5):
+        absolute_filepath = base_dir / f"ct{i}.nii"
+        reg_demo(absolute_filepath)
