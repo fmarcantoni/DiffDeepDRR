@@ -22,7 +22,6 @@ import cv2
 from libs.DiffDeepDRR.Differentiable_DRRs import Differentiable_DRRs
 from libs.DiffDeepDRR.vol.volume_Realistic import Volume_Realistc
 from libs.DiffDeepDRR.drr_projectors.proj_zbc import Deepdrrbased_Projector
-
 from glob import glob
 
 
@@ -32,7 +31,7 @@ def test_PatientCT_DRR(ct_volume_path):
         filepath=ct_volume_path,
         resample=True,
         resample_spacing=[2.0, 2.0, 2.0],
-        HU_segments=[-800, 350],
+        HU_segments=[100, 300],  # HU_segments=[-800, 350],
         target_orient="RIA",
         spectrum="90KV_AL40",
         use_cache=False,
@@ -107,10 +106,25 @@ def test_PatientCT_DRR(ct_volume_path):
     # Make a horizontal collage
     collage = cv2.hconcat(results)  # or cv2.vconcat(results) for vertical
 
+    images_results_dir = Path(
+        "/home/future-lab/fmarcantoni_ws/DiffDeepDRR/DRRGeneration_imgs"
+    )
+
+    output_filename = (
+        images_results_dir / f"{Path(ct_volume_path).stem}_collagefile_100_300.png"
+    )
+
+    print("Output file_10_30")
+    print(output_filename)
+
+    cv2.imwrite(output_filename, collage)
+    print(f"Saved collage to {output_filename}")
+
     # Show the collage
     cv2.imshow("DRR Collage", collage)
     print("Press any key to exit...")
-    cv2.waitKey(0)
+    key = cv2.waitKey(0)
+    print(f"Key pressed: {key}")
     cv2.destroyAllWindows()
 
     # plt.imshow(DRR_img, cmap="gray", vmax=1, vmin=0)
@@ -120,7 +134,6 @@ def test_PatientCT_DRR(ct_volume_path):
 
 if __name__ == "__main__":
     base_dir = Path("/home/future-lab/fmarcantoni_ws/DiffDeepDRR/testdata")
-    for i in range(5):
+    for i in range(1):
         absolute_filepath = base_dir / f"ct{i}.nii"
         test_PatientCT_DRR(absolute_filepath)
-

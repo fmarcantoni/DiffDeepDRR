@@ -76,7 +76,7 @@ def get_image_gradient(arr, scale=1.0) -> object:
     return edge
 
 
-def reg_demo(ct_volume_path):
+def reg_demo(ct_volume_path, output_dir):
 
     drr_moving = DRR_config(ct_volume_path, device="cuda:0")
     fixed_pose = get_true_drr()
@@ -98,22 +98,25 @@ def reg_demo(ct_volume_path):
     print("-----------------------------------------")
     print("groundtruth_pose:", fixed_pose)
     init_error = np.asarray(fixed_pose) - np.asarray(init_pose)
+    ref_error = np.asarray(fixed_pose) - np.asarray(refine_pose)
+
+    rot_init_err = np.linalg.norm(init_error[:3])
+    tras_init_err = np.linalg.norm(init_error[3:])
+    rot_ref_err = np.linalg.norm(ref_error[:3])
+    tras_ref_err = np.linalg.norm(ref_error[3:])
+
     print(
         "init_pred_pose:",
         init_pose,
-        "R_error:",
-        np.linalg.norm(init_error[:3]),
-        "T_error:",
-        np.linalg.norm(init_error[3:]),
+        f"R_error: {rot_init_err:.1f}",
+        f"T_error: {tras_init_err:.1f}",
     )
-    ref_error = np.asarray(fixed_pose) - np.asarray(refine_pose)
+
     print(
         "final_pred_pose:",
         refine_pose,
-        "R_error:",
-        np.linalg.norm(ref_error[:3]),
-        "T_error:",
-        np.linalg.norm(ref_error[3:]),
+        f"R_error: {rot_ref_err:.1f}",
+        f"T_error: {tras_ref_err:.1f}",
     )
     print("-----------------------------------------")
 
@@ -152,28 +155,26 @@ def reg_demo(ct_volume_path):
     axs[1, 0].imshow(edg_gt, cmap="Reds")
     axs[1, 0].imshow(edg_init, alpha=0.6, cmap="Blues")
     axs[1, 0].set_title("init. pred.")
-    axs[1, 0].set_xlabel(
-        f"Rot: {np.linalg.norm(init_error[:3])} | "
-        f"Trans: {np.linalg.norm(init_error[3:])}"
-    )
+    axs[1, 0].set_xlabel(f"Rot: {rot_init_err:.1f} | Trans: {tras_init_err:.1f}")
     # axs[1, 0].axis('off')
     axs[1, 1].imshow(edg_gt, cmap="Reds")
     axs[1, 1].imshow(edg_final, alpha=0.6, cmap="Blues")
     axs[1, 1].set_title("final pred.")
-    axs[1, 1].set_xlabel(
-        f"Rot: {np.linalg.norm(ref_error[:3])} | "
-        f"Trans: {np.linalg.norm(ref_error[3:])}"
-    )
+    axs[1, 1].set_xlabel(f"Rot: {rot_ref_err:.1f} | Trans: {tras_ref_err:.1f}")
     # axs[1, 1].axis('off')
 
     plt.show(block=False)  # non-blocking
     print("Press any key to continue...")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_filename = output_dir / f"{Path(ct_volume_path).stem}_collage.png"
+    plt.savefig(output_filename, dpi=300)
     plt.waitforbuttonpress()  # waits for key or mouse click
     plt.close()  # close current figure
 
 
 if __name__ == "__main__":
     base_dir = Path("/home/future-lab/fmarcantoni_ws/DiffDeepDRR/testdata")
+    out_dir = Path("/home/future-lab/fmarcantoni_ws/DiffDeepDRR/Registration_imgs")
     for i in range(5):
-        absolute_filepath = base_dir / f"ct{i}.nii"
-        reg_demo(absolute_filepath)
+        ct_volume_path = base_dir / f"ct{i}.nii"
+        reg_demo(ct_volume_path, out_dir)
